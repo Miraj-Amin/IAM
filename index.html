@@ -247,10 +247,33 @@ table.grid tr:nth-child(even) td{background:#FBFAFD}
   .sessions-grid{grid-template-columns:1fr}
 }
 @media print{
-  .sidebar,.topbar,.toolrow,.editopts,.sc-actions{display:none!important}
+  .sidebar,.topbar,.toolrow,.editopts,.sc-actions,.ifloat{display:none!important}
   .main{margin-left:0}
   .q{break-inside:avoid;box-shadow:none}
 }
+
+/* ── interview mode ── */
+.int-group-head{
+  font-size:10.5px;letter-spacing:.16em;font-weight:700;color:var(--gold);
+  padding:24px 0 10px;display:flex;align-items:center;gap:12px
+}
+.int-group-head::after{content:'';flex:1;height:1px;background:var(--line)}
+.int-complete{
+  text-align:center;padding:40px 20px;background:#fff;border:1.5px solid var(--ok);
+  border-radius:var(--radius);margin-bottom:80px;color:var(--ok)
+}
+.int-complete b{display:block;font-size:18px;margin:10px 0 6px;color:var(--ok)}
+.int-complete p{font-size:13.5px;color:var(--muted)}
+.ifloat{
+  position:fixed;bottom:24px;right:28px;display:flex;align-items:center;gap:11px;
+  background:#fff;border:1px solid var(--line);border-radius:13px;
+  padding:11px 16px;box-shadow:0 8px 28px rgba(36,16,65,.18);z-index:50
+}
+.ifloat .ipct{font-size:13px;color:var(--muted);font-weight:600;white-space:nowrap}
+.ifloat .ibar{height:5px;width:100px;border-radius:99px;background:var(--line);overflow:hidden}
+.ifloat .ibar i{display:block;height:100%;background:var(--gold);transition:width .3s}
+@keyframes qslide{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.q-new{animation:qslide .35s ease}
 </style>
 </head>
 <body>
@@ -282,7 +305,8 @@ let saveState = 'idle'; // idle | saving | saved | error
 
 /* ── questionnaire state (in-memory, flushed to DB) ── */
 let S = { answers:{}, notes:{}, optionOverrides:{}, meta:{} };
-let qView = 'dashboard', qSearch = '', showGated = false, onlyUnanswered = false;
+let qView = 'interview', qSearch = '', showGated = false, onlyUnanswered = false;
+let prevVisible = new Set(); // track which refs were visible before last render
 
 /* ── helpers ── */
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g,c=>
@@ -420,7 +444,7 @@ async function openSession(id){
     optionOverrides:data.option_overrides||{},
     meta:{client:data.client_name||'',consultant:data.consultant_name||'',date:data.session_date||''}
   };
-  qView='dashboard';qSearch='';showGated=false;onlyUnanswered=false;
+  qView='interview';qSearch='';showGated=false;onlyUnanswered=false;prevVisible=new Set();
   render('questionnaire');
 }
 
@@ -694,7 +718,8 @@ function renderSidebar(){
   const act=activeQs();
   const nav=document.getElementById('nav');if(!nav)return;
   const tiers=[['gate','TIER 1'],['business','TIER 2'],['modules','TIER 3 — MODULES']];
-  let h=`<a href="#" class="${qView==='dashboard'?'active':''}" data-v="dashboard">📊 Dashboard</a>`;
+  let h=`<a href="#" class="${qView==='interview'?'active':''}" data-v="interview">📋 Guided Interview</a>`;
+  h+=`<a href="#" class="${qView==='dashboard'?'active':''}" data-v="dashboard">📊 Dashboard</a>`;
   const flagged=triggeredCons().length;
   h+=`<a href="#" class="${qView==='cons'?'active':''} ${flagged?'flagged':''}" data-v="cons">⚠️ Considerations <span class="cnt">${flagged}</span></a>`;
   tiers.forEach(([t,label])=>{
@@ -739,7 +764,7 @@ function qCard(x){
   }else{
     field=`<textarea data-ref="${x.ref}" placeholder="Type the answer…">${esc(a||'')}</textarea>`;
   }
-  return`<div class="q ${answered?'answered':''} ${isVis?'':'gated'}">
+  return`<div class="q ${answered?'answered':''} ${isVis?'':'gated'}" data-ref-id="${x.ref}">
     <div class="q-top"><span class="ref">${esc(x.ref)}</span><div class="qtext">${esc(x.question)}</div></div>
     <p class="why">${esc(x.why)}</p>
     <div class="tags">
@@ -758,10 +783,29 @@ function qCard(x){
 
 function renderQContent(){
   const el=document.getElementById('content');if(!el)return;
-  if(qView==='dashboard'){el.innerHTML=viewDash();}
-  else if(qView==='cons'){el.innerHTML=viewCons();}
-  else{el.innerHTML=viewQuestions(qView);}
+  // track which questions are newly visible since last render
+  const nowVisible=new Set(DATA.questions.filter(visible).map(q=>q.ref));
+  const newlyVisible=qView==='interview'?[...nowVisible].filter(r=>prevVisible.size&&!prevVisible.has(r)):[];
+  prevVisible=nowVisible;
+  // preserve scroll in interview mode so re-render doesn't jump
+  const savedY=qView==='interview'?window.scrollY:0;
+  if(qView==='dashboard')el.innerHTML=viewDash();
+  else if(qView==='cons')el.innerHTML=viewCons();
+  else if(qView==='interview')el.innerHTML=viewInterview();
+  else el.innerHTML=viewQuestions(qView);
   bindQContent();
+  // restore scroll position after re-render
+  if(qView==='interview'&&savedY>0)requestAnimationFrame(()=>window.scrollTo({top:savedY,behavior:'instant'}));
+  // animate newly-visible cards
+  if(newlyVisible.length){
+    requestAnimationFrame(()=>{
+      newlyVisible.forEach(ref=>{
+        const card=document.querySelector(`.q[data-ref-id="${ref}"]`);
+        if(card){card.classList.add('q-new');
+          card.scrollIntoView({behavior:'smooth',block:'center'});}
+      });
+    });
+  }
 }
 
 function viewQuestions(gid){
@@ -783,6 +827,52 @@ function viewQuestions(gid){
     </div>
     ${list.length?list.map(qCard).join(''):`<div class="empty"><b>Nothing to show</b>
       Every applicable question is answered, or your filters exclude them all.</div>`}`;
+}
+
+function viewInterview(){
+  const GORDER=['gate','business','M1','M2','M3','M4','M5','M6','M7','M8','M9','M10','M11','M12','M13','M14'];
+  // sort all questions into flat logical order
+  const sorted=DATA.questions.slice().sort((a,b)=>{
+    const ai=GORDER.indexOf(a.group),bi=GORDER.indexOf(b.group);
+    if(ai!==bi)return ai-bi;
+    return DATA.questions.indexOf(a)-DATA.questions.indexOf(b);
+  });
+  let list=sorted.filter(visible);
+  if(onlyUnanswered)list=list.filter(x=>!hasAns(x.ref));
+  if(qSearch){const t=qSearch.toLowerCase();
+    list=list.filter(x=>(x.question+x.ref+x.why+x.section).toLowerCase().includes(t));}
+  const p=calcProgress(),pct=p.total?Math.round(p.answered/p.total*100):0;
+  let lastGroup=null;
+  const cards=list.map(q=>{
+    let hdr='';
+    if(q.group!==lastGroup){
+      lastGroup=q.group;
+      const g=DATA.groups.find(x=>x.id===q.group);
+      const tier=q.tier==='gate'?'TIER 1 · QUALIFYING GATE':q.tier==='business'?'TIER 2 · BUSINESS DISCOVERY':'TIER 3 · MODULE';
+      hdr=`<div class="int-group-head">${tier} &nbsp;—&nbsp; ${esc(g?.label||q.group)}</div>`;
+    }
+    return hdr+qCard(q);
+  }).join('');
+  const allDone=p.answered===p.total&&p.total>0;
+  return`<div class="head">
+      <div class="kicker">GUIDED INTERVIEW · ${p.answered} of ${p.total} applicable questions answered</div>
+      <h2 style="font-size:20px;margin-top:4px">${esc(currentSession?.client_name||'Discovery')}</h2>
+    </div>
+    <div class="toolrow" style="margin-bottom:4px">
+      <button class="chip ${onlyUnanswered?'on':''}" id="tg-unans">Unanswered only</button>
+    </div>
+    ${list.length?cards:`<div class="empty"><b>Nothing to show</b>Every applicable question is answered.</div>`}
+    ${allDone?`<div class="int-complete">
+      <div style="font-size:32px">✓</div>
+      <b>All applicable questions answered</b>
+      <p>Use <b>Export</b> in the toolbar to download a summary, or click <b>Mark complete</b> in the sidebar.</p>
+    </div>`:''}
+    <div style="height:90px"></div>
+    <div class="ifloat">
+      <div class="ibar"><i style="width:${pct}%"></i></div>
+      <span class="ipct">${p.answered} / ${p.total}</span>
+      <button class="btn primary" id="next-q">${allDone?'✓ All done':'Next unanswered ↓'}</button>
+    </div>`;
 }
 
 function viewCons(){
@@ -863,6 +953,19 @@ function bindQContent(){
     e.preventDefault();qView=a.dataset.goto;renderQContent();window.scrollTo(0,0);});
   const tg=document.getElementById('tg-gated');if(tg)tg.onclick=()=>{showGated=!showGated;renderQContent();};
   const tu=document.getElementById('tg-unans');if(tu)tu.onclick=()=>{onlyUnanswered=!onlyUnanswered;renderQContent();};
+  // Next unanswered button — finds next card without .answered class and scrolls to it
+  const nq=document.getElementById('next-q');
+  if(nq)nq.onclick=()=>{
+    const cards=[...document.querySelectorAll('.q:not(.gated)')];
+    const next=cards.find(c=>!c.classList.contains('answered'));
+    if(next){
+      next.scrollIntoView({behavior:'smooth',block:'center'});
+      setTimeout(()=>{
+        const inp=next.querySelector('select,input[type=number],textarea');
+        if(inp)inp.focus();
+      },420);
+    }else{toast('All applicable questions answered! 🎉',3000);}
+  };
 }
 
 function bindQ(){
@@ -873,7 +976,7 @@ function bindQ(){
     render('sessions');loadSessions().then(renderSessionList);};
   document.getElementById('complete-btn').onclick=markComplete;
   document.getElementById('q').oninput=e=>{qSearch=e.target.value;
-    if(qView==='dashboard'||qView==='cons')qView=DATA.groups[0].id;renderQContent();};
+    if(qView==='dashboard'||qView==='cons')qView='interview';renderQContent();};
   document.getElementById('x-json').onclick=exportJSON;
   document.getElementById('x-csv').onclick=exportCSV;
   document.getElementById('x-print').onclick=()=>window.print();
