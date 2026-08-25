@@ -785,18 +785,20 @@ function optEditorModal(){return`
 function renderSidebar(){
   const act=activeQs();
   const nav=document.getElementById('nav');if(!nav)return;
-  const tiers=[['gate','TIER 1'],['business','TIER 2'],['modules','TIER 3 — MODULES']];
-  let h=`<a href="#" class="${qView==='interview'?'active':''}" data-v="interview">📋 Guided Interview</a>`;
-  h+=`<a href="#" class="${qView==='dashboard'?'active':''}" data-v="dashboard">📊 Dashboard</a>`;
+  const tiers=[['gate','QUALIFYING GATE'],['business','BUSINESS DISCOVERY'],['modules','MODULES']];
+  let h=`<div class="nav-group">WORKSPACE</div>`;
+  h+=`<a href="#" class="${qView==='interview'?'active':''}" data-v="interview">Guided interview</a>`;
+  h+=`<a href="#" class="${qView==='dashboard'?'active':''}" data-v="dashboard">Dashboard</a>`;
   const flagged=triggeredCons().length;
-  h+=`<a href="#" class="${qView==='cons'?'active':''} ${flagged?'flagged':''}" data-v="cons">⚠️ Considerations <span class="cnt">${flagged}</span></a>`;
+  h+=`<a href="#" class="${qView==='cons'?'active':''} ${flagged?'flagged':''}" data-v="cons">Considerations ${flagged?`<span class="cnt">${flagged}</span>`:''}</a>`;
   tiers.forEach(([t,label])=>{
     h+=`<div class="nav-group">${label}</div>`;
     DATA.groups.filter(g=>g.tier===t).forEach(g=>{
       const qs=act.filter(x=>x.group===g.id);if(!qs.length)return;
       const done=qs.filter(x=>hasAns(x.ref)).length;
+      const cleanLabel=g.label.replace(/^M\d+\.\s*/,'');
       h+=`<a href="#" class="${qView===g.id?'active':''} ${done===qs.length?'done':''}" data-v="${g.id}">
-        ${esc(g.label)}<span class="cnt">${done}/${qs.length}</span></a>`;
+        ${esc(cleanLabel)}<span class="cnt">${done}/${qs.length}</span></a>`;
     });
   });
   nav.innerHTML=h;
@@ -881,8 +883,8 @@ function viewQuestions(gid){
   const all=DATA.questions.filter(x=>x.group===gid&&visible(x));
   const done=all.filter(x=>hasAns(x.ref)).length;
   return`<div class="head">
-      <div class="kicker">${g.tier==='gate'?'TIER 1':g.tier==='business'?'TIER 2':'TIER 3 · MODULE'}</div>
-      <h2>${esc(g.label)}</h2>
+      <div class="kicker">${g.tier==='gate'?'QUALIFYING GATE':g.tier==='business'?'BUSINESS DISCOVERY':'MODULE'}</div>
+      <h2>${esc(g.label.replace(/^M\d+\.\s*/,""))}</h2>
       <p>${done} of ${all.length} applicable questions answered.</p></div>
     <div class="toolrow">
       <button class="chip ${showGated?'on':''}" id="tg-gated">Show all questions</button>
@@ -911,7 +913,7 @@ function viewInterview(){
       lastGroup=q.group;
       const g=DATA.groups.find(x=>x.id===q.group);
       const tier=q.tier==='gate'?'TIER 1 · QUALIFYING GATE':q.tier==='business'?'TIER 2 · BUSINESS DISCOVERY':'TIER 3 · MODULE';
-      hdr=`<div class="int-group-head">${tier} &nbsp;—&nbsp; ${esc(g?.label||q.group)}</div>`;
+      hdr=`<div class="int-group-head">${esc((g?.label||q.group).replace(/^M\d+\.\s*/,""))}</div>`;
     }
     return hdr+qCard(q);
   }).join('');
